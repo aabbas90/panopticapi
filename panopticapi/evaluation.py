@@ -71,11 +71,10 @@ class PQStat():
             rq += rq_class
 
         return {'pq': pq / n, 'sq': sq / n, 'rq': rq / n, 'n': n}, per_class_results
-
-
 @get_traceback
 def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, categories):
     pq_stat = PQStat()
+    pq_per_image = {}
 
     idx = 0
     for gt_ann, pred_ann in annotation_set:
@@ -87,6 +86,7 @@ def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, cate
         pan_gt = rgb2id(pan_gt)
         pan_pred = np.array(Image.open(os.path.join(pred_folder, pred_ann['file_name'])), dtype=np.uint32)
         pan_pred = rgb2id(pan_pred)
+        pq_stat_per_image = PQStat()
 
         gt_segms = {el['id']: el for el in gt_ann['segments_info']}
         pred_segms = {el['id']: el for el in pred_ann['segments_info']}
@@ -134,6 +134,10 @@ def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, cate
             if iou > 0.5:
                 pq_stat[gt_segms[gt_label]['category_id']].tp += 1
                 pq_stat[gt_segms[gt_label]['category_id']].iou += iou
+                
+                pq_stat_per_image[gt_segms[gt_label]['category_id']].tp += 1
+                pq_stat_per_image[gt_segms[gt_label]['category_id']].iou += iou
+                
                 gt_matched.add(gt_label)
                 pred_matched.add(pred_label)
 
@@ -147,6 +151,7 @@ def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, cate
                 crowd_labels_dict[gt_info['category_id']] = gt_label
                 continue
             pq_stat[gt_info['category_id']].fn += 1
+            pq_stat_per_image[gt_info['category_id']].fn += 1
 
         # count false positives
         for pred_label, pred_info in pred_segms.items():
@@ -161,8 +166,12 @@ def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, cate
             if intersection / pred_info['area'] > 0.5:
                 continue
             pq_stat[pred_info['category_id']].fp += 1
+            pq_stat_per_image[pred_info['category_id']].fp += 1
+
+        pq_per_image.update({pred_ann['file_name']: pq_stat_per_image})
+
     print('Core: {}, all {} images processed'.format(proc_id, len(annotation_set)))
-    return pq_stat
+    return pq_stat, pq_per_image
 
 
 def pq_compute_multi_core(matched_annotations_list, gt_folder, pred_folder, categories):
@@ -175,14 +184,16 @@ def pq_compute_multi_core(matched_annotations_list, gt_folder, pred_folder, cate
         p = workers.apply_async(pq_compute_single_core,
                                 (proc_id, annotation_set, gt_folder, pred_folder, categories))
         processes.append(p)
+    all_stats = {}
     pq_stat = PQStat()
     for p in processes:
-        pq_stat += p.get()
-    return pq_stat
+        current_stat, per_image_stat = p.get()
+        pq_stat += current_stat
+        all_stats.update(per_image_stat)
+    return pq_stat, all_stats
 
 
 def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
-
     start_time = time.time()
     with open(gt_json_file, 'r') as f:
         gt_json = json.load(f)
@@ -216,7 +227,7 @@ def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
             raise Exception('no prediction for the image with id: {}'.format(image_id))
         matched_annotations_list.append((gt_ann, pred_annotations[image_id]))
 
-    pq_stat = pq_compute_multi_core(matched_annotations_list, gt_folder, pred_folder, categories)
+    pq_stat, per_image_stats = pq_compute_multi_core(matched_annotations_list, gt_folder, pred_folder, categories)
 
     metrics = [("All", None), ("Things", True), ("Stuff", False)]
     results = {}
@@ -236,10 +247,27 @@ def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
             results[name]['n'])
         )
 
+    print("Printing per-image results.")
+    print("{:20s}| {:>5s}  {:>5s}  {:>5s} {:>5s}".format("", "PQ", "SQ", "RQ", "N"))
+    print("-" * (10 + 7 * 4))
+
+    per_image_results = {}
+    for image_name, image_pq_stat in per_image_stats.items():
+        results_image, _ = image_pq_stat.pq_average(categories, isthing=None)
+
+        per_image_results.update({image_name: results_image})
+        print("{:20s}| {:5.1f}  {:5.1f}  {:5.1f} {:5d}".format(
+            image_name,
+            results_image['pq'],
+            results_image['sq'],
+            results_image['rq'],
+            results_image['n'])
+        )
+
     t_delta = time.time() - start_time
     print("Time elapsed: {:0.2f} seconds".format(t_delta))
 
-    return results
+    return results, per_image_results
 
 
 if __name__ == "__main__":
