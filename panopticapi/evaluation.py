@@ -70,7 +70,16 @@ class PQStat():
             sq += sq_class
             rq += rq_class
 
+        if n == 0:
+            n = 1
+
         return {'pq': pq / n, 'sq': sq / n, 'rq': rq / n, 'n': n}, per_class_results
+
+    def pq_sum(self, categories, isthing):
+        metrics, per_class_results = self.pq_average(categories, isthing)
+        n = metrics['n']
+        return {'pq': metrics['pq'] * n, 'sq': metrics['sq'] * n, 'rq': metrics['rq'] * n, 'n': n}, per_class_results
+
 @get_traceback
 def pq_compute_single_core(proc_id, annotation_set, gt_folder, pred_folder, categories):
     pq_stat = PQStat()
@@ -253,7 +262,16 @@ def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
 
     per_image_results = {}
     for image_name, image_pq_stat in per_image_stats.items():
-        results_image, _ = image_pq_stat.pq_average(categories, isthing=None)
+        results_image, results_image_per_class = image_pq_stat.pq_average(categories, isthing=None)
+        results_image['results_per_class']= results_image_per_class
+
+        results_image_thing, results_image_per_class_thing = image_pq_stat.pq_average(categories, isthing=True)
+        results_image['results_thing']= results_image_thing
+        results_image['results_thing_per_class']= results_image_per_class_thing
+
+        results_image_stuff, results_image_per_class_stuff = image_pq_stat.pq_average(categories, isthing=False)
+        results_image['results_stuff']= results_image_stuff
+        results_image['results_stuff_per_class']= results_image_per_class_stuff
 
         per_image_results.update({image_name: results_image})
         print("{:20s}| {:5.1f}  {:5.1f}  {:5.1f} {:5d}".format(
