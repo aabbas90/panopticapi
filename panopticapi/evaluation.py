@@ -45,6 +45,24 @@ class PQStat():
         for label, pq_stat_cat in pq_stat.pq_per_cat.items():
             self.pq_per_cat[label] += pq_stat_cat
         return self
+    
+    def get_confusion(self, categories, isthing):
+        iou = 0
+        tp = 0
+        fp = 0
+        fn = 0
+        for label, label_info in categories.items():
+            if isthing is not None:
+                cat_isthing = label_info['isthing'] == 1
+                if isthing != cat_isthing:
+                    continue
+
+            iou += self.pq_per_cat[label].iou
+            tp += self.pq_per_cat[label].tp
+            fp += self.pq_per_cat[label].fp
+            fn += self.pq_per_cat[label].fn
+
+        return iou, tp, fp, fn
 
     def pq_average(self, categories, isthing):
         pq, sq, rq, n = 0, 0, 0, 0
@@ -242,8 +260,16 @@ def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
     results = {}
     for name, isthing in metrics:
         results[name], per_class_results = pq_stat.pq_average(categories, isthing=isthing)
+        
         if name == 'All':
             results['per_class'] = per_class_results
+
+        iou, tp, fp, fn = pq_stat.get_confusion(categories, isthing=isthing)
+        results[name]['iou'] = iou
+        results[name]['tp'] = tp
+        results[name]['fp'] = fp
+        results[name]['fn'] = fn
+    
     print("{:10s}| {:>5s}  {:>5s}  {:>5s} {:>5s}".format("", "PQ", "SQ", "RQ", "N"))
     print("-" * (10 + 7 * 4))
 
@@ -272,6 +298,12 @@ def pq_compute(gt_json_file, pred_json_file, gt_folder=None, pred_folder=None):
         results_image_stuff, results_image_per_class_stuff = image_pq_stat.pq_average(categories, isthing=False)
         results_image['results_stuff']= results_image_stuff
         results_image['results_stuff_per_class']= results_image_per_class_stuff
+
+        iou, tp, fp, fn = image_pq_stat.get_confusion(categories, isthing=None)
+        results_image['iou'] = iou
+        results_image['tp'] = tp
+        results_image['fp'] = fp
+        results_image['fn'] = fn
 
         per_image_results.update({image_name: results_image})
         print("{:20s}| {:5.1f}  {:5.1f}  {:5.1f} {:5d}".format(
