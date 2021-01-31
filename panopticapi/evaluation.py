@@ -77,13 +77,13 @@ class PQStat():
             fp = self.pq_per_cat[label].fp
             fn = self.pq_per_cat[label].fn
             if tp + fp + fn == 0:
-                per_class_results[label] = {'pq': 0.0, 'sq': 0.0, 'rq': 0.0}
+                per_class_results[label] = {'pq': 0.0, 'sq': 0.0, 'rq': 0.0, 'iou': 0.0, 'tp': 0.0, 'fp': 0.0, 'fn': 0.0}
                 continue
             n += 1
             pq_class = iou / (tp + 0.5 * fp + 0.5 * fn)
             sq_class = iou / tp if tp != 0 else 0
             rq_class = tp / (tp + 0.5 * fp + 0.5 * fn)
-            per_class_results[label] = {'pq': pq_class, 'sq': sq_class, 'rq': rq_class}
+            per_class_results[label] = {'pq': pq_class, 'sq': sq_class, 'rq': rq_class, 'iou': iou, 'tp': tp, 'fp': fp, 'fn': fn}
             pq += pq_class
             sq += sq_class
             rq += rq_class
